@@ -17,6 +17,82 @@ def qwen_chat(
     output_type:str="text",  # "text" or "html"
     tool_context: ToolContext=None
 ):
+    """
+    Automate interaction with Qwen's web chat interface to send a message and 
+    extract the AI-generated response. Designed for ADK tool calling to enable 
+    LLM agents to query Qwen programmatically via browser automation.
+    
+    This function connects to a Chromium browser via Chrome DevTools Protocol (CDP),
+    navigates to the Qwen chat UI, injects a user message, triggers submission,
+    handles potential new-tab navigation (Qwen often opens chat sessions in new tabs),
+    monitors response streaming by detecting content stabilization across multiple 
+    render cycles, and extracts the final response content in plain text or HTML format.
+    
+    Args:
+        message (str): The chat message/prompt to send to Qwen. Should be a 
+                       complete, well-formed query appropriate for the model.
+        cdp_url (str, optional): Chrome DevTools Protocol endpoint for browser 
+                                 connection. Defaults to "http://localhost:9222".
+        chat_url (str, optional): Base URL of the Qwen chat interface. Defaults 
+                                  to "https://qwen.ai/home".
+        textarea_selector (str, optional): CSS selector for the message input 
+                                           textarea element. Defaults to "textarea" 
+                                           but may need adjustment if UI changes.
+        submit_button_selector (str, optional): CSS selector for the send/submit 
+                                                button (icon-based). Defaults to 
+                                                Qwen's arrow-up icon selector.
+        response_selector (str, optional): CSS selector pattern for extracting AI 
+                                           response content. Supports multiple 
+                                           patterns via comma separation to improve 
+                                           resilience against UI updates. Defaults 
+                                           to ".ds-markdown, [class*='markdown']".
+        timeout (int, optional): Maximum time in milliseconds to wait for initial 
+                                 page load and input field availability. Defaults 
+                                 to 30000 (30 seconds).
+        response_timeout (int, optional): Maximum time in milliseconds to wait for 
+                                          the full AI response to complete streaming. 
+                                          Qwen responses can be lengthy; defaults 
+                                          to 900000 (15 minutes).
+        post_response_sleep (int, optional): Additional delay in seconds after 
+                                             response completes before extraction, 
+                                             ensuring all dynamic content is 
+                                             fully rendered. Defaults to 2.
+        submit_retry_sleep (int, optional): Delay in seconds before retrying submit 
+                                            click if button is not immediately 
+                                            enabled after filling input. Defaults 
+                                            to 1.
+        output_type (str, optional): Format of extracted response: "text" for 
+                                     plain text via inner_text(), or "html" for 
+                                     raw HTML markup via inner_html(). Defaults 
+                                     to "text".
+    
+    Returns:
+        None: The extracted response is printed to stdout for tool consumption. 
+              Errors are printed to stderr and trigger sys.exit(1).
+    
+    Raises:
+        Exception: Any Playwright or runtime error during browser automation 
+                   (handled internally with error logging and exit).
+    
+    Note:
+        - Implements robust new-tab handling: Qwen often opens chat sessions in 
+          new browser tabs. This function listens for context "page" events and 
+          popups, then switches context to the newly created tab for response 
+          extraction.
+        - Response completion is detected via a stabilization loop: the function 
+          polls response content every 3 seconds and considers generation complete 
+          when no text changes are detected across consecutive checks.
+        - Includes debug logging that dumps all matching response elements during 
+          the polling loop (visible in stderr) to aid troubleshooting.
+        - Reuses existing browser tabs/pages when possible to maintain session 
+          state and avoid redundant logins.
+        - All timeouts are in milliseconds except post_response_sleep and 
+          submit_retry_sleep which are in seconds for intuitive short delays.
+        - Browser is automatically closed in the finally block to prevent resource 
+          leaks.
+        - Selectors are fragile to UI changes; monitor Qwen's frontend updates 
+          and adjust selectors as needed.
+    """
     browser = None
     with sync_playwright() as p:
         try:

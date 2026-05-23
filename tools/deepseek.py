@@ -19,6 +19,80 @@ def deepseek_chat(
     output_type:str="text",  # "text" or "html"
     tool_context: ToolContext=None
 ):
+    """
+    Automate interaction with DeepSeek's web chat interface to send a message and 
+    extract the AI-generated response. Designed for ADK tool calling to enable 
+    LLM agents to query DeepSeek programmatically via browser automation.
+    
+    This function connects to a Chromium browser via Chrome DevTools Protocol (CDP),
+    navigates to the DeepSeek chat UI, injects a user message, triggers submission,
+    waits for streaming response completion (detected via 'Stop' button visibility),
+    and extracts the final response content in plain text or HTML format.
+    
+    Args:
+        message (str): The chat message/prompt to send to DeepSeek. Should be a 
+                       complete, well-formed query appropriate for the model.
+        cdp_url (str, optional): Chrome DevTools Protocol endpoint for browser 
+                                 connection. Defaults to "http://localhost:9222".
+        chat_url (str, optional): Base URL of the DeepSeek chat interface. Defaults 
+                                  to "https://chat.deepseek.com".
+        textarea_selector (str, optional): CSS selector for the message input 
+                                           textarea element. Use browser dev tools 
+                                           to update if UI changes.
+        submit_button_selector (str, optional): CSS selector for the send/submit 
+                                                button. Adjust if DeepSeek updates 
+                                                their DOM structure.
+        stop_button_selector (str, optional): CSS selector identifying the 'Stop' 
+                                              button that appears during response 
+                                              streaming. Used to detect when 
+                                              generation is in-progress vs complete.
+        response_selector (str, optional): CSS selector for extracting the AI 
+                                           response content. Defaults to ".ds-markdown" 
+                                           which targets DeepSeek's markdown container.
+        timeout (int, optional): Maximum time in milliseconds to wait for initial 
+                                 page load and input field availability. Defaults 
+                                 to 30000 (30 seconds).
+        response_timeout (int, optional): Maximum time in milliseconds to wait for 
+                                          the full AI response to complete streaming. 
+                                          Defaults to 300000 (5 minutes).
+        stop_button_wait_timeout (int, optional): Time in milliseconds to wait for 
+                                                  the 'Stop' button to appear after 
+                                                  submission. Short timeout allows 
+                                                  graceful fallback for fast responses. 
+                                                  Defaults to 15000.
+        post_response_sleep (int, optional): Additional delay in seconds after 
+                                             response completes before extraction, 
+                                             ensuring all dynamic content is 
+                                             fully rendered. Defaults to 2.
+        submit_retry_sleep (int, optional): Delay in seconds before retrying submit 
+                                            click if button is not immediately 
+                                            enabled after filling input. Defaults 
+                                            to 1.
+        output_type (str, optional): Format of extracted response: "text" for 
+                                     plain text via inner_text(), or "html" for 
+                                     raw HTML markup via inner_html(). Defaults 
+                                     to "text".
+    
+    Returns:
+        None: The extracted response is printed to stdout for tool consumption. 
+              Errors are printed to stderr and trigger sys.exit(1).
+    
+    Raises:
+        Exception: Any Playwright or runtime error during browser automation 
+                   (handled internally with error logging and exit).
+    
+    Note:
+        - Reuses existing browser tabs/pages when possible to maintain session state.
+        - Response completion is inferred from the visibility state of the 'Stop' 
+          button, which appears during streaming and disappears when done.
+        - Includes fallback selector logic if the primary response_selector fails 
+          to match, improving resilience against minor UI updates.
+        - All timeouts are in milliseconds except post_response_sleep and 
+          submit_retry_sleep which are in seconds for intuitive short delays.
+        - Browser is automatically closed in the finally block to prevent leaks.
+        - Sensitive to DeepSeek's DOM structure; selectors may require updates if 
+          the web UI changes significantly.
+    """
     with sync_playwright() as p:
         try:
             # Connect to existing browser over CDP
