@@ -1,110 +1,141 @@
-from ast import Dict
+from typing import Dict, Optional
 import sys
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from google.adk.tools import ToolContext, FunctionTool
 
-def load_and_display_page(
-    page_url:str,
-    cdp_url:str ="http://localhost:9222",
-    content_selector:str="body",
-    timeout:int=30000,
-    load_timeout:int=5000,      # Max event wait time (not a fixed sleep)
-    output_mode:int=1,           # 1 = text (default), 2 = HTML
-    tool_context: ToolContext=None
+def browser_interact(
+    action: str = "extract",
+    page_url: Optional[str] = None,
+    content_selector: str = "body",
+    input_selector: Optional[str] = None,
+    text: Optional[str] = None,
+    click_selector: Optional[str] = None,
+    cdp_url: str = "http://localhost:9222",
+    timeout: int = 30000,
+    load_timeout: int = 5000,
+    output_mode: int = 1,   # 1=text, 2=HTML (only for extract)
+    tool_context: ToolContext = None
 ) -> Dict[str, str]:
     """
-    Load a webpage via a CDP-connected Chromium browser and extract visible content 
-    from a specified DOM selector. Outputs the result to stdout for tool consumption.
+    Persistent browser interaction tool for ADK agents.
     
-    This function is designed for ADK tool calling to enable web content inspection 
-    and extraction in automated agent workflows. It connects to an existing browser 
-    instance via Chrome DevTools Protocol, navigates to the target URL, waits for 
-    dynamic content to stabilize, and extracts either plain text or inner HTML based 
-    on the output mode.
+    Supports continuous interaction with a single browser instance:
+      - action='load'  : Navigate to `page_url` and store the page.
+      - action='extract': Extract visible text/HTML from `content_selector`.
+      - action='type'  : Type `text` into `input_selector`.
+      - action='click' : Click `click_selector`.
+      - action='close' : Close the browser and clean up state.
     
-    Args:
-        page_url (str): The full URL to navigate to (e.g., "https://example.com"). 
-                        Must include protocol (http/https).
-        cdp_url (str, optional): Chrome DevTools Protocol endpoint for browser 
-                                 connection. Defaults to "http://localhost:9222".
-        content_selector (str, optional): CSS selector identifying the DOM element 
-                                          to extract content from. Defaults to "body".
-        timeout (int, optional): Maximum time in milliseconds to wait for the initial 
-                                 page navigation and network idle. Defaults to 30000.
-        load_timeout (int, optional): Maximum time in milliseconds to wait for the 
-                                      target selector to appear and for secondary 
-                                      dynamic requests to settle. Defaults to 5000.
-        output_mode (int, optional): Format of extracted content: 1 for plain text 
-                                     via inner_text(), 2 for raw HTML via inner_html(). 
-                                     Defaults to 1.
-    
-    Returns:
-        Dict[str, str]: A dictionary containing the extracted content under the key "response". 
-                         Errors are printed to stderr and trigger sys.exit(1).
-    
-    Raises:
-        PlaywrightTimeout: If page load or selector wait exceeds specified timeouts 
-                           (handled internally with fallback behavior).
-        Exception: Any unexpected error during browser operation (handled internally).
-    
-    Note:
-        - Reuses an existing browser tab if one already contains the target domain.
-        - Uses a 3-stage wait strategy: networkidle → selector visible → secondary networkidle.
-        - Browser connection is automatically closed in the finally block.
+    State is stored in `tool_context.state` and reused across calls.
     """
-    browser = None
-    with sync_playwright() as p:
-        try:
+    # Initialize state if this is the first call
+    if tool_context is None:
+        state = {}
+    else:
+        state = tool_context.state
+        if not hasattr(state, "setdefault"):  # Ensure it behaves like a dict
+            state = {}
+            tool_context.state = state
+
+    # Helper to get or create browser connection
+    def _get_browser():
+        if "browser" not in state or state["browser"] is None:
             print(f"Connecting to browser at {cdp_url}...", file=sys.stderr)
-            browser = p.chromium.connect_over_cdp(cdp_url)
-            
+            playwright = sync_playwright().start()
+            state["playwright"] = playwright
+            browser = playwright.chromium.connect_over_cdp(cdp_url)
+            state["browser"] = browser
+        return state["browser"]
+
+    def _get_page():
+        """Return the stored page, or None."""
+        return state.get("page")
+
+    try:
+        # ----- ACTION: LOAD -----
+        if action == "load":
+            if not page_url:
+                return {"error": "page_url is required for action='load'"}
+            browser = _get_browser()
             context = browser.contexts[0] if browser.contexts else browser.new_context()
-            
-            # Reuse existing tab if possible, else create new
+            # Reuse existing tab if same domain already open
             domain = page_url.split("//")[-1].split("/")[0]
             page = next((pg for pg in context.pages if domain in pg.url), None)
             if not page:
                 page = context.new_page()
-
             print(f"Navigating to {page_url}...", file=sys.stderr)
-            # EVENT 1: Waits until initial network requests finish & DOM parses
             page.goto(page_url, wait_until="networkidle", timeout=timeout)
-            
-            # EVENT 2: Waits until your target element is actually rendered in the DOM
             print(f"Waiting for '{content_selector}' to appear...", file=sys.stderr)
             page.wait_for_selector(content_selector, state="visible", timeout=load_timeout)
-            
-            # EVENT 3: Waits for secondary dynamic requests (e.g., AJAX, WebSockets) to settle
             try:
                 page.wait_for_load_state("networkidle", timeout=load_timeout)
             except PlaywrightTimeout:
-                print("Note: Page stabilized but network never went fully idle. Proceeding.", file=sys.stderr)
+                print("Note: Network never fully idle, proceeding.", file=sys.stderr)
+            state["page"] = page
+            return {"response": f"Page loaded: {page_url}"}
 
-            # Extract output based on mode
-            if not page.is_closed():
-                locator = page.locator(content_selector)
-                if locator.count() > 0:
-                    target = locator.first
-                    if output_mode == 2:
-                        print(target.inner_html())
-                    else:
-                        print(target.inner_text())
-                else:
-                    print(f"Error: Selector '{content_selector}' not found.", file=sys.stderr)
-                    sys.exit(1)
+        # ----- ACTION: EXTRACT -----
+        elif action == "extract":
+            page = _get_page()
+            if not page or page.is_closed():
+                return {"error": "No page loaded. Use action='load' first."}
+            locator = page.locator(content_selector)
+            if locator.count() == 0:
+                return {"error": f"Selector '{content_selector}' not found."}
+            target = locator.first
+            if output_mode == 2:
+                content = target.inner_html()
             else:
-                print("Error: Page closed during load.", file=sys.stderr)
-                sys.exit(1)
+                content = target.inner_text()
+            # Also print to stdout for backward compatibility
+            print(content)
+            return {"response": content}
 
-            return {"response": target.inner_text() if output_mode == 1 else target.inner_html()}
+        # ----- ACTION: TYPE -----
+        elif action == "type":
+            if not input_selector or text is None:
+                return {"error": "input_selector and text required for action='type'"}
+            page = _get_page()
+            if not page or page.is_closed():
+                return {"error": "No page loaded. Use action='load' first."}
+            page.fill(input_selector, text)
+            print(f"Typed '{text}' into {input_selector}", file=sys.stderr)
+            return {"response": f"Typed '{text}' into {input_selector}"}
 
-        except Exception as e:
-            print(f"An error occurred: {e}", file=sys.stderr)
-            sys.exit(1)
-        finally:
-            if browser:
-                try: browser.close()
-                except: pass
+        # ----- ACTION: CLICK -----
+        elif action == "click":
+            if not click_selector:
+                return {"error": "click_selector required for action='click'"}
+            page = _get_page()
+            if not page or page.is_closed():
+                return {"error": "No page loaded. Use action='load' first."}
+            page.click(click_selector)
+            print(f"Clicked {click_selector}", file=sys.stderr)
+            # Wait a moment for any navigation/action to start
+            page.wait_for_timeout(1000)
+            return {"response": f"Clicked {click_selector}"}
+
+        # ----- ACTION: CLOSE -----
+        elif action == "close":
+            if "browser" in state:
+                try:
+                    state["browser"].close()
+                except:
+                    pass
+            if "playwright" in state:
+                try:
+                    state["playwright"].stop()
+                except:
+                    pass
+            state.clear()
+            return {"response": "Browser closed and state cleared."}
+
+        else:
+            return {"error": f"Unknown action: {action}"}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
-browser_tool = FunctionTool(load_and_display_page)
+# Create the tool
+browser_tool = FunctionTool(browser_interact)
