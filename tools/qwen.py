@@ -1,19 +1,21 @@
 import sys
 import time
 from playwright.sync_api import sync_playwright
+from google.adk.tools import ToolContext, FunctionTool
 
 def qwen_chat(
-    message,
-    cdp_url="http://localhost:9222",
-    chat_url="https://qwen.ai/home",
-    textarea_selector="textarea",
-    submit_button_selector="div > i.default-iconfont.icon-line-arrow-up",
-    response_selector=".ds-markdown, [class*='markdown']",
-    timeout=30000,
-    response_timeout=900000,
-    post_response_sleep=2,
-    submit_retry_sleep=1,
-    output_type="text"  # "text" or "html"
+    message:str,
+    cdp_url:str="http://localhost:9222",
+    chat_url:str="https://qwen.ai/home",
+    textarea_selector:str="textarea",
+    submit_button_selector:str="div > i.default-iconfont.icon-line-arrow-up",
+    response_selector:str=".ds-markdown, [class*='markdown']",
+    timeout:int=30000,
+    response_timeout:int=900000,
+    post_response_sleep:int=2,
+    submit_retry_sleep:int=1,
+    output_type:str="text",  # "text" or "html"
+    tool_context: ToolContext=None
 ):
     browser = None
     with sync_playwright() as p:
@@ -195,3 +197,6 @@ def qwen_chat(
                     browser.close()
                 except Exception:
                     pass
+
+
+qwen_tool = FunctionTool(qwen_chat)

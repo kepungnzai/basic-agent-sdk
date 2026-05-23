@@ -1,21 +1,23 @@
 import sys
 import time
 from playwright.sync_api import sync_playwright
+from google.adk.tools import ToolContext, FunctionTool
 
 def deepseek_chat(
-    message,
-    cdp_url="http://localhost:9222",
-    chat_url="https://chat.deepseek.com",
-    textarea_selector="#root > div > div > div.c3ecdb44 > div._7780f2e > div > div > div._9a2f8e4 > div.aaff8b8f > div > div > div._24fad49 > textarea",
-    submit_button_selector="#root > div > div > div.c3ecdb44 > div._7780f2e > div > div > div._9a2f8e4 > div.aaff8b8f > div > div > div.ec4f5d61 > div.bf38813a > div:nth-child(3)",
-    stop_button_selector="button:has-text('Stop'), [role='button']:has-text('Stop')",
-    response_selector=".ds-markdown",
-    timeout=30000,
-    response_timeout=300000,
-    stop_button_wait_timeout=15000,
-    post_response_sleep=2,
-    submit_retry_sleep=1,
-    output_type="text"  # "text" or "html"
+    message:str,
+    cdp_url:str="http://localhost:9222",
+    chat_url:str="https://chat.deepseek.com",
+    textarea_selector:str="#root > div > div > div.c3ecdb44 > div._7780f2e > div > div > div._9a2f8e4 > div.aaff8b8f > div > div > div._24fad49 > textarea",
+    submit_button_selector:str="#root > div > div > div.c3ecdb44 > div._7780f2e > div > div > div._9a2f8e4 > div.aaff8b8f > div > div > div.ec4f5d61 > div.bf38813a > div:nth-child(3)",
+    stop_button_selector:str="button:has-text('Stop'), [role='button']:has-text('Stop')",
+    response_selector:str=".ds-markdown",
+    timeout:int=30000,
+    response_timeout:int=300000,
+    stop_button_wait_timeout:int=15000,
+    post_response_sleep:int=2,
+    submit_retry_sleep:int=1,
+    output_type:str="text",  # "text" or "html"
+    tool_context: ToolContext=None
 ):
     with sync_playwright() as p:
         try:
@@ -103,3 +105,6 @@ def deepseek_chat(
             sys.exit(1)
         finally:
             browser.close()
+
+
+deepseek_tool = FunctionTool(deepseek_chat)
