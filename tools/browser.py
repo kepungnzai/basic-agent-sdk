@@ -1,3 +1,4 @@
+from ast import Dict
 import sys
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from google.adk.tools import ToolContext, FunctionTool
@@ -10,7 +11,7 @@ def load_and_display_page(
     load_timeout:int=5000,      # Max event wait time (not a fixed sleep)
     output_mode:int=1,           # 1 = text (default), 2 = HTML
     tool_context: ToolContext=None
-):
+) -> Dict[str, str]:
     """
     Load a webpage via a CDP-connected Chromium browser and extract visible content 
     from a specified DOM selector. Outputs the result to stdout for tool consumption.
@@ -38,8 +39,8 @@ def load_and_display_page(
                                      Defaults to 1.
     
     Returns:
-        None: Results are printed to stdout. Errors are printed to stderr and cause 
-              sys.exit(1).
+        Dict[str, str]: A dictionary containing the extracted content under the key "response". 
+                         Errors are printed to stderr and trigger sys.exit(1).
     
     Raises:
         PlaywrightTimeout: If page load or selector wait exceeds specified timeouts 
@@ -94,6 +95,8 @@ def load_and_display_page(
             else:
                 print("Error: Page closed during load.", file=sys.stderr)
                 sys.exit(1)
+
+            return {"response": target.inner_text() if output_mode == 1 else target.inner_html()}
 
         except Exception as e:
             print(f"An error occurred: {e}", file=sys.stderr)

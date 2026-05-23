@@ -1,5 +1,6 @@
 import sys
 import time
+from typing import Dict
 from playwright.sync_api import sync_playwright
 from google.adk.tools import ToolContext, FunctionTool
 
@@ -18,7 +19,7 @@ def deepseek_chat(
     submit_retry_sleep:int=1,
     output_type:str="text",  # "text" or "html"
     tool_context: ToolContext=None
-):
+)-> Dict[str, str]:
     """
     Automate interaction with DeepSeek's web chat interface to send a message and 
     extract the AI-generated response. Designed for ADK tool calling to enable 
@@ -74,8 +75,8 @@ def deepseek_chat(
                                      to "text".
     
     Returns:
-        None: The extracted response is printed to stdout for tool consumption. 
-              Errors are printed to stderr and trigger sys.exit(1).
+        Dict[str, str]: A dictionary containing the extracted response under the key "response". 
+                         Errors are printed to stderr and trigger sys.exit(1).
     
     Raises:
         Exception: Any Playwright or runtime error during browser automation 
@@ -173,6 +174,8 @@ def deepseek_chat(
                 else:
                     print("Error: Failed to extract response content.", file=sys.stderr)
                     sys.exit(1)
+
+            return {"response": last_response.inner_text()}
 
         except Exception as e:
             print(f"An error occurred: {e}", file=sys.stderr)

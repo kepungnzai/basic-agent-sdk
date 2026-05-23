@@ -1,3 +1,4 @@
+from ast import Dict
 import sys
 import time
 from playwright.sync_api import sync_playwright
@@ -16,7 +17,7 @@ def qwen_chat(
     submit_retry_sleep:int=1,
     output_type:str="text",  # "text" or "html"
     tool_context: ToolContext=None
-):
+)-> Dict[str, str]:
     """
     Automate interaction with Qwen's web chat interface to send a message and 
     extract the AI-generated response. Designed for ADK tool calling to enable 
@@ -67,9 +68,9 @@ def qwen_chat(
                                      to "text".
     
     Returns:
-        None: The extracted response is printed to stdout for tool consumption. 
-              Errors are printed to stderr and trigger sys.exit(1).
-    
+        Dict[str, str]: A dictionary containing the extracted response under the key "response". 
+                         Errors are printed to stderr and trigger sys.exit(1).
+
     Raises:
         Exception: Any Playwright or runtime error during browser automation 
                    (handled internally with error logging and exit).
@@ -249,6 +250,9 @@ def qwen_chat(
                 except Exception as e:
                     print(f"Lost connection to page while reading response: {e}", file=sys.stderr)
                     break
+
+        
+            
             
             # Final extraction from the correct chat_page
             if not chat_page.is_closed():
@@ -263,6 +267,8 @@ def qwen_chat(
             else:
                 print("Error: Cannot extract final response because the page is closed.", file=sys.stderr)
                 sys.exit(1)
+
+            return {"response": output}
 
         except Exception as e:
             print(f"An error occurred: {e}", file=sys.stderr)
