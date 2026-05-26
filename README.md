@@ -1,19 +1,20 @@
 
 
 Install the dependencies
-
+--------------------------------------------------------------------------------------------------
 uv pip install .
 uv add wikipedia
-
+--------------------------------------------------------------------------------------------------
 Run chrome in debug mode
-
+--------------------------------------------------------------------------------------------------
 "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\temp\chrome-debug
-
+--------------------------------------------------------------------------------------------------
 And then run the following code from the command line
-
-python main.py "Write a hello world program in Python"
-
-
+--------------------------------------------------------------------------------------------------
+python tools\deepseek.py "Write a hello world program in Python"
+--------------------------------------------------------------------------------------------------
+browser tool 
+--------------------------------------------------------------------------------------------------
 # 1. Load a page
 browser_interact(action="load", page_url="https://example.com/login", tool_context=ctx)
 
@@ -33,5 +34,8 @@ print(result["response"])
 # 6. Done – close the browser when finished
 browser_interact(action="close", tool_context=ctx)
 
-
+--------------------------------------------------------------------------------------------------
 Please ensure you have your .env inside workflow_agents folder. 
+--------------------------------------------------------------------------------------------------
+To run the main program 
+python main.py
