@@ -6,9 +6,10 @@ their collaboration using the ADK's SequentialAgent pattern.
 import os
 import logging
 import google.cloud.logging
+
 from callback_logging import log_query_to_model, log_model_response
 from dotenv import load_dotenv
-from google.adk.tools import google_search
+
 from google.adk import Agent
 from google.adk.agents import SequentialAgent, LoopAgent, ParallelAgent
 from google.adk.tools.tool_context import ToolContext
@@ -19,7 +20,6 @@ from langchain_community.utilities import WikipediaAPIWrapper
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from tools import deepseek_chat, browser_tool
 
 # Load environment variables from .env file in the app directory
 env_path = Path(__file__).parent / ".env"
@@ -72,18 +72,24 @@ def write_file(
         f.write(content)
     return {"status": "success"}
 
-# root cause analysis agents
-root_analysis_writer = Agent(
-    name="root_analysis_writer",
+
+# Agents
+file_writer = Agent(
+    name="file_writer",
     model=model_name,
-    description="Critical analysis of root cause information and provide a professional reporting into these sections  causes, analysis, recommendations (that focus on proactive instead of reactive remediations and preventive measures) and summary",
+    description="Creates marketing details and saves a pitch document.",
     instruction="""
-    ROOT_CAUSE:
-    { ROOT_CAUSE? }
+    PLOT_OUTLINE:
+    { PLOT_OUTLINE? }
 
     INSTRUCTIONS:
-    - Create a root cause analysis report based on the ROOT_CAUSE information.
-    - Use your 'write_file' tool to create a root_cause_analysis.txt file based on the format provided earlier
+    - Create a marketable, contemporary movie title suggestion for the movie described in the PLOT_OUTLINE. If a title has been suggested in PLOT_OUTLINE, you can use it, or replace it with a better one.
+    - Use your 'write_file' tool to create a new txt file with the following arguments:
+        - for a filename, use the movie title
+        - Write to the 'movie_pitches' directory.
+        - For the 'content' to write, extract the following from the PLOT_OUTLINE:
+            - A logline
+            - Synopsis or plot outline
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0,
@@ -91,26 +97,28 @@ root_analysis_writer = Agent(
     tools=[write_file],
 )
 
-# Root cause analyzer agent
-root_cause_analyzer = Agent(
-    name="root_cause_analyzer",
+screenwriter = Agent(
+    name="screenwriter",
     model=model_name,
-    description="Analyze the information provided and determine with high accuracy the root cause of an issue.",
+    description="As a screenwriter, write a logline and plot outline for a biopic about a historical character.",
     instruction="""
     INSTRUCTIONS:
-    Your goal is to analyze the issue gathered by RESEARCH: { RESEARCH? } and determine the most likely root cause of the issue. You should use your expertise in SRE and incident analysis to make connections between the different pieces of information provided in the research and identify the underlying cause of the issue. Be as specific and detailed as possible in your analysis, and provide a clear explanation of how you arrived at your conclusion. If there are multiple potential root causes, analyze each one and determine which is most likely based on the evidence provided. Provide your findings into field ROOT_CAUSE 
+    Your goal is to write a logline and three-act plot outline for an inspiring movie about a historical character(s) described by the PROMPT: { PROMPT? }
 
     - If there is CRITICAL_FEEDBACK, use those thoughts to improve upon the outline.
-    - A RESEARCH will be provided, please use details from it as much as possible.
-    - Use the 'append_to_state' tool to write your root cause analysis to the field 'ROOT_CAUSE'.
-    - 
+    - If there is RESEARCH provided, feel free to use details from it, but you are not required to use it all.
+    - If there is a PLOT_OUTLINE, improve upon it.
+    - Use the 'append_to_state' tool to write your logline and three-act plot outline to the field 'PLOT_OUTLINE'.
+    - Summarize what you focused on in this pass.
+
+    PLOT_OUTLINE:
+    { PLOT_OUTLINE? }
+
     RESEARCH:
     { research? }
 
     CRITICAL_FEEDBACK:
     { CRITICAL_FEEDBACK? }
-
-
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0,
@@ -118,58 +126,60 @@ root_cause_analyzer = Agent(
     tools=[append_to_state],
 )
 
-# researcher agent
 researcher = Agent(
     name="researcher",
     model=model_name,
-    description="Based on the error try to determine the root and use the provided link to load a webpage in html and understand what the error   using the browser tool. You can also use the browser tool to load other relevant links to gather more information about the error. You will be an expert in interpreting html. Your goal is to travese to the link, gather as much information as possible about the error, in determining  root causes, and add findings  in to the state field 'research'.",
+    description="Answer research questions using Wikipedia.",
     instruction="""
-    USER_PROVIDED_ERROR:
-    { USER_PROVIDED_ERROR? }
+    PROMPT:
+    { PROMPT? }
 
-    HTTP_LINK:
-    { HTTP_LINK? }
+    PLOT_OUTLINE:
+    { PLOT_OUTLINE? }
 
     CRITICAL_FEEDBACK:
     { CRITICAL_FEEDBACK? }
 
     INSTRUCTIONS:
-    - If there is CRITICAL_FEEDBACK, use those thoughts to improve upon your research.
-    - If there's a HTTP_LINK provided, use the browser tool to load the page and analyze its content to gather information about the error. Look for any clues in the page's text, structure, or metadata that could help you understand the error better.
-    - Review the error details and HTTP link provided. If you have not seen this issue before, use the browser tool and google the error message using google_search tool to find relevant information about the error and its potential root cause. Use the browser tool to load the HTTP link provided and analyze its content for clues about the error.
-     You are an SRE expert and use the links available or feature of the observability tool to find out the root cause of the issue. Gather as much information as possible about the error and its potential root cause using browser_tool and add it to the state field 'research' using the 'append_to_state' tool.
+    - If there is a CRITICAL_FEEDBACK, use your wikipedia tool to do research to solve those suggestions
+    - If there is a PLOT_OUTLINE, use your wikipedia tool to do research to add more historical detail
+    - If these are empty, use your Wikipedia tool to gather facts about the person in the PROMPT
+    - Use the 'append_to_state' tool to add your research to the field 'research'.
+    - Summarize what you have learned.
+    Now, use your Wikipedia tool to do research.
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0,
     ),
     tools=[
-        browser_tool,google_search,append_to_state,
+        LangchainTool(tool=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())),
+        append_to_state,
     ],
 )
 
-incident_analysis_team = SequentialAgent(
-    name="incident_analysis_team",
-    description="Analyze incident details, gather relevant information, provide analysis and reports on recommendations for what might have contributed to this incident here with highest precision possible. If you are not sure, you can ask deepseek_chat (another model agent) to provide you with more information and insights about the issue.",
+film_concept_team = SequentialAgent(
+    name="film_concept_team",
+    description="Write a film plot outline and save it as a text file.",
     sub_agents=[
         researcher,
-        root_cause_analyzer,
-        root_analysis_writer
+        screenwriter,
+        file_writer
     ],
 )
 
 root_agent = Agent(
-    name="problem_gathering_agent",
+    name="greeter",
     model=model_name,
-    description="Assist user in finding out issue related to an incident",
+    description="Guides the user in crafting a movie plot.",
     instruction="""
-    - Let the user know you will help them find information about an incident. Ask them for   
-      details about an incident, error message and if there's a observability link available let's keep this http link for further investigation.
-    - When they responded, use the 'append_to_state' tool to store the user's  error message and problem description
-      into the 'USER_PROVIDED_ERROR' state key, http link if it exists into the 'HTTP_LINK' state key and transfer to the 'incident_analysis_team' agent
+    - Let the user know you will help them write a pitch for a hit movie. Ask them for   
+      a historical figure to create a movie about.
+    - When they respond, use the 'append_to_state' tool to store the user's response
+      in the 'PROMPT' state key and transfer to the 'film_concept_team' agent
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0,
     ),
     tools=[append_to_state],
-    sub_agents=[incident_analysis_team],
+    sub_agents=[film_concept_team],
 )
