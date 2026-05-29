@@ -156,24 +156,10 @@ researcher = LlmAgent(
         temperature=0,
     ),
     tools=[
-        google_search
+        google_search, browser_tool, append_to_state
     ],
     output_key="research_findings",
 )
-
-# researcher_tool = AgentTool(agent=researcher)
-# root_cause_analyzer_tool = AgentTool(agent=root_cause_analyzer)
-# root_analysis_writer_tool = AgentTool(agent=root_analysis_writer)
-
-# incident_analysis_team = SequentialAgent(
-#     name="incident_analysis_team",
-#     description="Analyze incident details, gather relevant information, provide analysis and reports on recommendations for what might have contributed to this incident here with highest precision possible. If you are not sure, you can ask deepseek_chat (another model agent) to provide you with more information and insights about the issue.",
-#     sub_agents=[
-#         researcher,
-#         root_cause_analyzer,
-#         root_analysis_writer
-#     ],
-# )
 
 incident_analysis_team = SequentialAgent(
     name="incident_analysis_team",
